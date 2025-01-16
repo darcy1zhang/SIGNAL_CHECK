@@ -1,6 +1,7 @@
 import numpy as np
 from utils import *
 import matplotlib.pyplot as plt
+import paho.mqtt.client as mqtt
 
 good_data = []
 hr_of_bsg_abp_label = []
@@ -41,11 +42,12 @@ if __name__ == "__main__":
     mqtt_receiver = setup_mqtt_receiver("localhost", 1883, "test/topic")
     mqtt_publisher = setup_mqtt_publisher("localhost", 1883)
 
-    data_96 = np.load('./data/ID_96_10s_BSG_Art_Labels.npy')
-    data_98 = np.load('./data/ID_98_10s_BSG_Art_Labels.npy')
-    dada_105 = np.load('./data/ID_105_10s_BSG_Art_Labels.npy')
-    data_123 = np.load('./data/ID_123_10s_BSG_Art_Labels.npy')
-    data = np.vstack([data_96, data_98, dada_105, data_123])
+    # data_96 = np.load('./data/ID_96_10s_BSG_Art_Labels.npy')
+    # data_98 = np.load('./data/ID_98_10s_BSG_Art_Labels.npy')
+    data_105 = np.load('./data/ID_105_10s_BSG_Art_Labels.npy')
+    # data_123 = np.load('./data/ID_123_10s_BSG_Art_Labels.npy')
+    # data = np.vstack([data_96, data_98, dada_105, data_123])
+    data = data_105
     for i in range(data.shape[0]):
         data_row = data[i]
         mqtt_publisher.publish("test/topic", data_row.tobytes())

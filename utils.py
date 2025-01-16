@@ -42,35 +42,43 @@ def get_hr_from_abp(abp):
     hr = 60.0*128 / peaks[0]
     return hr
 
-def encode_beddot_data(mac_addr, timestamp, data_interval, data):
-
-    mac_bytes = bytes(int(x, 16) for x in mac_addr.split(":"))
-    data_len = len(data)
-    data_len_bytes = struct.pack("H", data_len)
-    timestamp_bytes = struct.pack("L", int(timestamp))
-    data_interval_bytes = struct.pack("I", int(data_interval))
-    data_bytes = b"".join(struct.pack("i", int(value)) for value in data)
-
-    byte_stream = mac_bytes + data_len_bytes + timestamp_bytes + data_interval_bytes + data_bytes
-    return byte_stream
-
-
 def parse_beddot_data(msg):
-    # bytedata=msg.payload
-    bytedata = msg
+    bytedata=msg.payload
     mac_addr = ":".join(f"{x:02x}" for x in struct.unpack("!BBBBBB", bytedata[0:6]))
     data_len =struct.unpack("H",bytedata[6:8])[0]
     timestamp=struct.unpack("L",bytedata[8:16])[0]  # in micro second
     data_interval=struct.unpack("I",bytedata[16:20])[0]  # in micro second
+    signal_type = struct.unpack("i", bytedata[20:24])[0]
 
+    timestamp -=data_interval
+    # data=[0]*int((len(bytedata)-20)/4)
     data=[0]*data_len
-    index=20
+    index=24
     for i in range(data_len):
         if len(bytedata[index:index+4]) == 4:
             data[i] = struct.unpack("i", bytedata[index:index+4])[0]
             index +=4
+            # timestamp +=data_interval
+    # print("mac_addr,",mac_addr,timestamp,data_interval)
+    if (data_interval < 10**6):     # less than 1 second
+        timestamp = (timestamp // data_interval)*data_interval*1000 #align timestamp and convert to nano second.
+    else:
+        timestamp = (timestamp // 1000000)* 10**9   # align to second
+    # timestamp = (timestamp // 10000)* 10**7 #convert to nano second. resolution=10ms
+    data_interval *=1000 #convert to nano second
 
     return  mac_addr, timestamp, data_interval, data
+
+def encode_beddot_data(mac_addr, timestamp, data_interval, signal_type, data):
+    mac_bytes = bytes(int(x, 16) for x in mac_addr.split(":")) # mac address should be in the form of "11:22:33:44:55:66"
+    data_len = len(data) # data length is always 100, which means one second
+    data_len_bytes = struct.pack("H", data_len)
+    timestamp_bytes = struct.pack("L", int(timestamp * 1e6)) # timestamp is in second (orignal is in us)
+    data_interval_bytes = struct.pack("I", data_interval) # data interval is in us
+    signal_type_bytes = struct.pack("i", signal_type) # 0 is BSG, 1 is ECG
+    data_bytes = b''.join(struct.pack("i", int(d)) for d in data)
+    encoded_data = mac_bytes + data_len_bytes + timestamp_bytes + data_interval_bytes + signal_type_bytes + data_bytes
+    return encoded_data
 
 
 def mac_to_int(mac):
