@@ -32,7 +32,7 @@ def setup_mqtt_receiver(broker, port, topic):
 if __name__ == "__main__":
     
     mqtt_publisher = setup_mqtt_publisher('167.20.180.210', 1883)
-    data = np.load('./BSG_ECG.npy')
+    data = np.load('./BSG_ECG.npy')[:5]
     for i in range(data.shape[0]):
         data_row = data[i]
         bsg = data_row[:1000]

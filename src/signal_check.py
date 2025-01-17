@@ -1,9 +1,36 @@
-import os, sys, yaml, argparse, uuid, queue, threading, time, struct
+import os, sys, yaml, argparse, uuid, queue, threading, time, struct, enum, logging, json
 from multiprocessing import Queue
-from paho.mqtt.client import mqtt
+import paho.mqtt.client as mqtt
 from time import sleep
 
+logging.basicConfig(
+    filename="test.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 MULTI_THREAD = 1
+
+class CallbackAPIVersion(enum.Enum):
+    """Defined the arguments passed to all user-callback.
+
+    See each callbacks for details: `on_connect`, `on_connect_fail`, `on_disconnect`, `on_message`, `on_publish`,
+    `on_subscribe`, `on_unsubscribe`, `on_log`, `on_socket_open`, `on_socket_close`,
+    `on_socket_register_write`, `on_socket_unregister_write`
+    """
+    VERSION1 = 1
+    """The version used with paho-mqtt 1.x before introducing CallbackAPIVersion.
+
+    This version had different arguments depending if MQTTv5 or MQTTv3 was used. `Properties` & `ReasonCode` were missing
+    on some callback (apply only to MQTTv5).
+
+    This version is deprecated and will be removed in version 3.0.
+    """
+    VERSION2 = 2
+    """ This version fix some of the shortcoming of previous version.
+
+    Callback have the same signature if using MQTTv5 or MQTTv3. `ReasonCode` are used in MQTTv3.
+    """
 
 def signal_check(mac_addr, seismic_data_queue):
 
@@ -25,6 +52,7 @@ def signal_check(mac_addr, seismic_data_queue):
         timestamp=msg["timestamp"]
         data_interval=msg["data_interval"]
         data=msg["data"]
+        print('mac:', mac_addr, 'timestamp:', timestamp, 'data len:', len(data))
 
         raw_data_buf += data
         buf_len=len(raw_data_buf)
@@ -32,9 +60,6 @@ def signal_check(mac_addr, seismic_data_queue):
         if(buf_len > BUFFER_SIZE_MAX - 100):
             difSize = buf_len - BUFFER_SIZE_MAX
             del raw_data_buf[0:difSize]
-
-        if buf_len < WINDOW_SIZE :
-            continue
         
         data = raw_data_buf
     return
@@ -44,12 +69,12 @@ class MessageQueueMapping:
         self.msg_queue_dict = {}
         self.rw_lock = threading.RLock()
         
-    def add(self, mac, process_id, ai_input_q, ai_output_q, group):
+    def add(self, mac, process_id, ai_input_q, group):
         with self.rw_lock:
             if self.msg_queue_dict.get(mac) is not None:
                 print("Duplicate entry. Key '{}' already exists.".format(mac))
             else:
-                self.msg_queue_dict[mac] = [process_id, ai_input_q, ai_output_q, group]
+                self.msg_queue_dict[mac] = [process_id, ai_input_q, group]
                 
     def remove(self, mac):
         with self.rw_lock:
@@ -64,15 +89,15 @@ class MessageQueueMapping:
             id=self.msg_queue_dict.get(mac)
         return id[1] if id is not None else None
     
-    def get_ai_output_q(self, mac):
-        with self.rw_lock:
-            id=self.msg_queue_dict.get(mac)
-        return id[2] if id is not None else None
+    # def get_ai_output_q(self, mac):
+    #     with self.rw_lock:
+    #         id=self.msg_queue_dict.get(mac)
+    #     return id[2] if id is not None else None
     
     def get_group(self, mac):
         with self.rw_lock:
             id=self.msg_queue_dict.get(mac)
-        return id[3] if id is not None else None
+        return id[2] if id is not None else None
     
     def get_process_id(self, mac):
         with self.rw_lock:
@@ -246,11 +271,12 @@ def setup_mqtt_for_raw_data(config_dict):
 
     # Create MQTT client for receiving raw data
     unique_client_id = f"AI_Subscribe_{uuid.uuid4()}"
-    mqtt_client = mqtt.Client(client_id=unique_client_id, callback_api_version = 2)
+    mqtt_client = mqtt.Client(client_id=unique_client_id)
+# , callback_api_version = CallbackAPIVersion.VERSION2
 
     mqtt_client.on_connect = on_mqtt_connect
     mqtt_client.on_message = on_mqtt_message
-    mqtt_client.connect(config_dict["mqtt"]['ip'], config_dict["port"], 60)
+    mqtt_client.connect(config_dict["mqtt"]['ip'], config_dict['mqtt']["port"], 60)
     mqtt_thread = threading.Thread(target=lambda: mqtt_client.loop_forever()) 
     mqtt_thread.daemon = True
     mqtt_thread.start()
@@ -275,7 +301,7 @@ if __name__ == '__main__':
     thread_list=[]
 
     config_dict = parse_config_file(args.conf_file)
-
+    logging.info(json.dumps(data, ensure_ascii=False))
     mqtt_dedicated_receive, mqtt_thread_recv=setup_mqtt_for_raw_data(config_dict)
     thread_list.append(mqtt_thread_recv)
     # Create a dedicated MQTT client for publishing vital data
