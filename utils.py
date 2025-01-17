@@ -67,7 +67,7 @@ def parse_beddot_data(msg):
     # timestamp = (timestamp // 10000)* 10**7 #convert to nano second. resolution=10ms
     data_interval *=1000 #convert to nano second
 
-    return  mac_addr, timestamp, data_interval, data
+    return  mac_addr, timestamp, data_interval, signal_type, data
 
 def encode_beddot_data(mac_addr, timestamp, data_interval, signal_type, data):
     mac_bytes = bytes(int(x, 16) for x in mac_addr.split(":")) # mac address should be in the form of "11:22:33:44:55:66"

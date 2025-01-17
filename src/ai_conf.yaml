@@ -1,0 +1,76 @@
+# config_mode: local or remote
+config_mode: local 
+# license_file: /home/leaf/DotAI/main_ai_mqtt.bin.tpm
+license_file: /home/leaf/licensing/aa.bin.tpm
+
+local:
+  mqtt: 
+    ip: 167.20.180.210
+    port: 1883
+    user: None
+    password: None
+    # If using port 8885, please specify the path of security certificates
+    ca_cert_path: "/home/leaf/dots_backend/config/cert/ca.crt"  # Path to your CA certificate
+    client_cert_path: "~/dots_backend/config/cert/client.crt"  # Optional: Client certificate (if required)
+    client_key_path: "../../../config/cert/client.key"   # Optional: Client key (if required)
+
+    topic_filter: 
+      # geophone,
+      # /+/+/geophone
+      /yida/+/+
+    measurement_mapping:
+  
+  # If device_conf_csv is defined, the "devices" and "alert" sections will be ignored
+  devices_conf_csv: device_conf.csv
+
+  alert:
+    b8:27:eb:96:cb:fc: 
+      hr:
+        max: 120
+        min: 45
+      rr: 
+        max: 25
+        min: 10
+      bph:
+        max: 140
+        min: 90
+      bpl:
+        max: 90
+        min: 60
+      oc:
+        "on": 1
+        "off": 1
+        # "on" and "off" must be enclosed in quotes (" ") because they are keywords in YAML files.
+    b8:27:eb:96:cb:aa: 
+      hr:
+        "max": 120
+        "min": 45
+      rr: 
+        "max": 25
+        "min": 10
+      bph:
+        "max": 140
+        "min": 90
+      bpl:
+        "max": 90
+        "min": 60
+      oc:
+        "on": 1
+        "off": 1
+  devices: 
+    # '*' can be used as a wildcard, matching all devices
+    # - - '*'
+    - - 30:30:f9:72:3a:64
+      - adult
+    - - 30:30:f9:72:3a:70
+      - adult
+    - - 30:30:f9:73:4b:e4
+      - adult
+    - - 30:30:f9:72:3b:d8
+      - adult
+
+remote:  
+  # Master server's url
+  master_server: ga.homedots.us
+  instance_name: "dot3.us"
+  instance_scret: "dfgsdsfgg"

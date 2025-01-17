@@ -1,0 +1,7 @@
+mqtt: 
+  ip: 167.20.180.210
+  port: 1883
+  topic_filter: 
+    /yida/+/+
+
+devices_conf_csv: device_conf.csv
