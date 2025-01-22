@@ -2,12 +2,25 @@ import os, sys, yaml, argparse, uuid, queue, threading, time, struct, enum, logg
 from multiprocessing import Queue
 import paho.mqtt.client as mqtt
 from time import sleep
+import numpy as np
 
-logging.basicConfig(
-    filename="test.log",
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+class DebugFilter(logging.Filter):
+    def filter(self, record):
+        return record.levelno == logging.DEBUG
+
+logger = logging.getLogger("my_logger")
+logger.setLevel(logging.DEBUG)
+debug_handler = logging.FileHandler("debug.log", mode="w")
+debug_handler.setLevel(logging.DEBUG)
+debug_handler.addFilter(DebugFilter())
+info_handler = logging.FileHandler("info.log", mode="w")
+info_handler.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s - %(threadName)s - %(message)s")
+debug_handler.setFormatter(formatter)
+info_handler.setFormatter(formatter)
+logger.addHandler(debug_handler)
+logger.addHandler(info_handler)
+logger.debug('hello')
 
 MULTI_THREAD = 1
 
@@ -42,6 +55,7 @@ def signal_check(mac_addr, seismic_data_queue):
     while True:
         try:
             msg=seismic_data_queue.get(timeout=300) # timeout 5 minutes
+            logger.debug(f'The queue of mac {mac_addr} id {id(seismic_data_queue)} lose a seismic_data. The length of it is {seismic_data_queue.qsize()}')
         except queue.Empty: #if timeout and does't receive a message, remove mapping dictionary and exit current thread
             print(f"{mac_addr} have not received message for 5 minute, process terminated")
             break
@@ -52,16 +66,17 @@ def signal_check(mac_addr, seismic_data_queue):
         timestamp=msg["timestamp"]
         data_interval=msg["data_interval"]
         data=msg["data"]
-        print('mac:', mac_addr, 'timestamp:', timestamp, 'data len:', len(data))
+        signal_type = msg["signal_type"]
+        # print('mac:', mac_addr, 'timestamp:', timestamp, 'data len:', len(data))
 
         raw_data_buf += data
         buf_len=len(raw_data_buf)
+        print(buf_len)
 
         if(buf_len > BUFFER_SIZE_MAX - 100):
-            difSize = buf_len - BUFFER_SIZE_MAX
-            del raw_data_buf[0:difSize]
-        
-        data = raw_data_buf
+            np.save(f'../data/{signal_type}_{timestamp}', np.array(raw_data_buf))
+            del raw_data_buf[0:buf_len]
+
     return
 
 class MessageQueueMapping:
@@ -170,6 +185,7 @@ def process_schedule(mqtt_msg_q):
     while True:
         #get raw data message 
         msg=mqtt_msg_q.get() 
+        logger.info(f'Get a message out of the queue, the length of it is {mqtt_msg_q.qsize()}')
 
         now=time.monotonic() 
         if now -  latest_chk_time > 30:
@@ -189,13 +205,14 @@ def process_schedule(mqtt_msg_q):
 
         # extact information from the message and put them into a buffer
         mac_addr,timestamp, data_interval, signal_type, data = parse_beddot_data(msg)
-        seismic_data={"timestamp":timestamp, "data_interval":data_interval, "data":data}
+        seismic_data={"timestamp":timestamp, "data_interval":data_interval, "signal_type":signal_type, "data":data}
 
         mq_id=mq_map.get_ai_input_q(mac_addr)
         if (None == mq_id): 
             # print(f"dot_license.number_of_devices()={dot_license.number_of_devices()}")
             if mq_map.get_number_of_queue() < 50:
                 ai_input_q = Queue()
+                logger.info(f'The mac {mac_addr} has initialized a queue to store the input. The len of the queue {id(ai_input_q)} is {ai_input_q.qsize()}')
 
                 # Launch a new process/thread
                 if MULTI_THREAD:
@@ -203,7 +220,7 @@ def process_schedule(mqtt_msg_q):
                     p.daemon = True
 
                 p.start()
-
+                logger.info(f'The thread to process mac {mac_addr} is created. The thread id is {p.ident} name is {p.name}')
                 # Add info to the mapping centre for further use.
                 mq_map.add(mac_addr, p, ai_input_q, group)
             else:
@@ -215,6 +232,7 @@ def process_schedule(mqtt_msg_q):
                 backlog=mq_id.qsize()
                 if proc.is_alive() and backlog < 180:
                     mq_id.put(seismic_data)
+                    logger.debug(f'The queue of mac {mac_addr} id {mq_id} is added a new seismic_data. The length of it is {mq_id.qsize()}')
                 else:
                     if proc.is_alive():
                         if MULTI_THREAD:
@@ -261,10 +279,11 @@ def on_mqtt_connect(client, userdata, flags, rc, properties=None):
         for t in topics:
             if t != "":
                 print('subscribe topic:', t)
-                client.subscribe(t,qos=1)
+                client.subscribe(t)
 
 def on_mqtt_message(client, userdata, msg):
     mqtt_msg_queue.put(msg)
+    logger.info(f'Put a new message into the queue, the length of it is {mqtt_msg_queue.qsize()}')
     return
 
 def setup_mqtt_for_raw_data(config_dict):
@@ -272,14 +291,17 @@ def setup_mqtt_for_raw_data(config_dict):
     # Create MQTT client for receiving raw data
     unique_client_id = f"AI_Subscribe_{uuid.uuid4()}"
     mqtt_client = mqtt.Client(client_id=unique_client_id)
+    logger.info(f'The receiver client has been created. The client id is {unique_client_id}')
 # , callback_api_version = CallbackAPIVersion.VERSION2
 
     mqtt_client.on_connect = on_mqtt_connect
     mqtt_client.on_message = on_mqtt_message
     mqtt_client.connect(config_dict["mqtt"]['ip'], config_dict['mqtt']["port"], 60)
-    mqtt_thread = threading.Thread(target=lambda: mqtt_client.loop_forever()) 
+    logger.info(f'The receiver client has connected to ip {config_dict['mqtt']['ip']} port {config_dict['mqtt']['port']}')
+    mqtt_thread = threading.Thread(target=lambda: mqtt_client.loop_forever(), name='mqtt_clinet_receiver') 
     mqtt_thread.daemon = True
     mqtt_thread.start()
+    logger.info(f'The receiver thread is bind to thread id {mqtt_thread.ident} name {mqtt_thread.name}')
     return mqtt_client, mqtt_thread
 
 def is_all_threads_alive(thd_list):
@@ -301,19 +323,30 @@ if __name__ == '__main__':
     thread_list=[]
 
     config_dict = parse_config_file(args.conf_file)
-    logging.info(json.dumps(data, ensure_ascii=False))
+    logger.info(json.dumps(config_dict, ensure_ascii=False))
     mqtt_dedicated_receive, mqtt_thread_recv=setup_mqtt_for_raw_data(config_dict)
     thread_list.append(mqtt_thread_recv)
+    logger.info(
+        f"The receiver thread is added to thread list\n"
+        f"The thread_list has:\n" +
+        "\n".join([thread.name for thread in thread_list])
+    )
     # Create a dedicated MQTT client for publishing vital data
     # mqtt_dedicated_pubish, mqtt_thread_pub=setup_dedicated_mqtt_for_pubishing_data(mqtt_conf)
     # thread_list.append(mqtt_thread_pub)
 
     # Luanch precess scheduling thread and result publishing thread
-    schedule_thread = threading.Thread(target=process_schedule, args=(mqtt_msg_queue,) )
+    logger.info(f'The length of message queue is {mqtt_msg_queue.qsize()}')
+    schedule_thread = threading.Thread(target=process_schedule, args=(mqtt_msg_queue,), name='schedule_thread')
     schedule_thread.daemon = True
     schedule_thread.start()
+    logger.info(f'The schedule thread is created id {schedule_thread.ident} name {schedule_thread.name}')
     thread_list.append(schedule_thread)
-
+    logger.info(
+        f"The schedule thread is added to thread list\n"
+        f"The thread_list has:\n" +
+        "\n".join([thread.name for thread in thread_list])
+    )
     # publish_thread = threading.Thread(target=publish_result, args=(result_queue,) )
     # publish_thread.daemon = True
     # publish_thread.start()

@@ -3,6 +3,7 @@ from utils import *
 import matplotlib.pyplot as plt
 import paho.mqtt.client as mqtt
 from scipy.signal import resample
+import time
 
 
 def setup_mqtt_publisher(broker, port):
@@ -33,6 +34,7 @@ if __name__ == "__main__":
     
     mqtt_publisher = setup_mqtt_publisher('167.20.180.210', 1883)
     data = np.load('./BSG_ECG.npy')[:5]
+    cnt = 0
     for i in range(data.shape[0]):
         data_row = data[i]
         bsg = data_row[:1000]
@@ -43,15 +45,19 @@ if __name__ == "__main__":
         mac_bsg = int_to_mac(mac_bsg)
         mac_ecg = int_to_mac(mac_ecg)
         timestamp = int(data_row[-53])
-        for j in range(9):
+        for j in range(10):
+            bsg[-1] = i * 10 +j
+            ecg[-1] = i * 10 +j
             byte_bsg = encode_beddot_data(mac_bsg, timestamp + j, 10000, 0, bsg[j * 100:(j + 1) * 100])
             mqtt_publisher.publish(f'/yida/{mac_bsg}/bsg', byte_bsg)
             byte_ecg = encode_beddot_data(mac_ecg, timestamp + j, 10000, 1, ecg[j * 100:(j + 1) * 100])
             mqtt_publisher.publish(f'/yida/{mac_ecg}/ecg', byte_ecg)
+            cnt += 1
 
+    time.sleep(5)
     mqtt_publisher.disconnect()
     print("Publisher has stopped.")
-
+    print(cnt)
     # mqtt_receiver = setup_mqtt_receiver('167.20.180.210', 1883, "/+/+/geophone")
     # mqtt_receiver.loop_stop()
     # mqtt_receiver.disconnect()
