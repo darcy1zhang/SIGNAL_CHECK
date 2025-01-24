@@ -1,5 +1,11 @@
+# mqtt: 
+#   ip: 167.20.180.210
+#   port: 1883
+#   topic_filter: 
+#     /yida/+/+
+
 mqtt: 
-  ip: 167.20.180.210
+  ip: localhost
   port: 1883
   topic_filter: 
     /yida/+/+

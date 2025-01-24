@@ -23,6 +23,7 @@ logger.addHandler(info_handler)
 logger.debug('hello')
 
 MULTI_THREAD = 1
+result_queue=Queue()
 
 class CallbackAPIVersion(enum.Enum):
     """Defined the arguments passed to all user-callback.
@@ -45,12 +46,19 @@ class CallbackAPIVersion(enum.Enum):
     Callback have the same signature if using MQTTv5 or MQTTv3. `ReasonCode` are used in MQTTv3.
     """
 
+def test_match_shift(bsg_long, ecg_long):
+    return
+
+
 def signal_check(mac_addr, seismic_data_queue):
 
     buffersize = 600 # second
-    samplingrate = 100
-    BUFFER_SIZE_MAX = int(buffersize) * int(samplingrate)
-    raw_data_buf=[]
+    samplingrate_ecg = 128
+    samplingrate_bsg = 100
+    BUFFER_SIZE_MAX_ecg = int(buffersize) * int(samplingrate_ecg)
+    BUFFER_SIZE_MAX_bsg = int(buffersize) * int(samplingrate_bsg)
+    raw_data_buf_ecg=[]
+    raw_data_buf_bsg=[]
 
     while True:
         try:
@@ -68,16 +76,95 @@ def signal_check(mac_addr, seismic_data_queue):
         data=msg["data"]
         signal_type = msg["signal_type"]
         # print('mac:', mac_addr, 'timestamp:', timestamp, 'data len:', len(data))
+        
+        if len(data) < 100:
+            data = np.pad(data, (0, 100-len(data)), 'constant', constant_values=(np.mean(data), np.mean(data)))
 
-        raw_data_buf += data
-        buf_len=len(raw_data_buf)
-        print(buf_len)
+        if signal_type == 'ecg':
+            raw_data_buf_bsg += data
+        elif signal_type == 'bsg':
+            raw_data_buf_ecg += data
+        else:
+            raise ValueError(f"Unknown signal type: {signal_type}")
+        
+        buf_len_bsg=len(raw_data_buf_bsg)
+        buf_len_ecg=len(raw_data_buf_ecg)
+        # logger.debug(f'The length of raw_data_buf is {buf_len}')
+        # logger.debug(f'The length of raw_data_buf is {buf_len}, the last value of data is {data[-1]}')
 
-        if(buf_len > BUFFER_SIZE_MAX - 100):
-            np.save(f'../data/{signal_type}_{timestamp}', np.array(raw_data_buf))
-            del raw_data_buf[0:buf_len]
+        if((buf_len_bsg > BUFFER_SIZE_MAX_bsg - 100) and (buf_len_ecg > BUFFER_SIZE_MAX_ecg - 128)):
+            np.save(f'../data/ecg_{timestamp}', np.array(raw_data_buf_ecg))
+            np.save(f'../data/bsg_{timestamp}', np.array(raw_data_buf_bsg))
 
+            bsg_long = np.array(raw_data_buf_bsg).copy()
+            ecg_long = np.array(raw_data_buf_ecg).copy()
+            del raw_data_buf_bsg[0:buf_len_bsg]
+            del raw_data_buf_ecg[0:buf_len_ecg]
+
+            #prep work for downstream tasks
+            try:
+                match_or_not, time_shift = test_match_shift(bsg_long, ecg_long)
+            except Exception as e:
+                logger(f"MAC={mac_addr}: AI predict function ERROR,Terminated: {e}")
+                break
+            
+            result={
+                "mac_addr": mac_addr,
+                "match_or_not": match_or_not,
+                "time_shift": time_shift,
+                "timestamp": timestamp,
+                # "alert":alert,
+            }
+            try:
+                result_queue.put(result)
+            except Exception as e:
+                logger.info(f"MAC={mac_addr}: Send vital ERROR,Terminated: {e}")
+                break
     return
+
+def send_vital_result(group, mac, timestamp, match_or_not, time_shift, alert):
+    topic="/" + group + "/" + mac + "/match_or_not"
+ 
+    payload = "timestamp=" + str(timestamp) + "; match_or_not=" + str(match_or_not) + "; time_shift=" + str(time_shift) + "; alert=" + str(alert)
+
+    mqtt_dedicated_publisher.publish(topic, payload, qos=1)
+    # if debug:
+    #     global mqtt_publishing_cnt
+    #     mqtt_publishing_cnt +=1
+    #     if mqtt_publishing_cnt % 100 ==0:
+    #         print(f"mqtt_publishing_cnt={mqtt_publishing_cnt}")
+    # else:
+    #     # print(topic)
+    #     pass
+    return
+
+def publish_result(mqtt_msg_q):
+
+    while True:
+        #get result data message 
+        try:
+            msg=mqtt_msg_q.get() 
+        except Exception as e:
+            logger.info(f"process_schedule(), failed to get mqtt message from queue. error={e}")
+            sys.exit()
+        if None == msg:
+            continue
+
+        mac_addr=msg.get("mac_addr")
+        if (None == mac_addr):
+            logger.info(f"Missing mac_addr in the message")
+            continue
+
+        timestamp=msg.get("timestamp",0)   
+        match_or_not=msg.get("match_or_not", -20)
+        time_shift=msg.get("time_shift", 0)
+        alert=msg.get("alert", -1)   
+        # timestamp=(int(timestamp * 10**9) // 10**7) * 10**7
+
+        group=mq_map.get_group(mac_addr)
+        if group:
+            send_vital_result(group, mac_addr ,timestamp, match_or_not, time_shift, alert)
+
 
 class MessageQueueMapping:
     def __init__(self):
@@ -159,7 +246,6 @@ def parse_beddot_data(msg):
     data_len =struct.unpack("H",bytedata[6:8])[0]
     timestamp=struct.unpack("L",bytedata[8:16])[0]  # in micro second
     data_interval=struct.unpack("I",bytedata[16:20])[0]  # in micro second
-    signal_type = struct.unpack("i", bytedata[20:24])[0]
 
     timestamp -=data_interval
     # data=[0]*int((len(bytedata)-20)/4)
@@ -177,8 +263,7 @@ def parse_beddot_data(msg):
         timestamp = (timestamp // 1000000)* 10**9   # align to second
     # timestamp = (timestamp // 10000)* 10**7 #convert to nano second. resolution=10ms
     data_interval *=1000 #convert to nano second
-
-    return  mac_addr, timestamp, data_interval, signal_type, data
+    return  mac_addr, timestamp, data_interval, data
 
 def process_schedule(mqtt_msg_q):
     latest_chk_time=time.monotonic()
@@ -204,8 +289,8 @@ def process_schedule(mqtt_msg_q):
                 break
 
         # extact information from the message and put them into a buffer
-        mac_addr,timestamp, data_interval, signal_type, data = parse_beddot_data(msg)
-        seismic_data={"timestamp":timestamp, "data_interval":data_interval, "signal_type":signal_type, "data":data}
+        mac_addr, timestamp, data_interval, data = parse_beddot_data(msg)
+        seismic_data={"timestamp":timestamp, "data_interval":data_interval, "signal_type":substrings[3], "data":data }
 
         mq_id=mq_map.get_ai_input_q(mac_addr)
         if (None == mq_id): 
@@ -223,6 +308,10 @@ def process_schedule(mqtt_msg_q):
                 logger.info(f'The thread to process mac {mac_addr} is created. The thread id is {p.ident} name is {p.name}')
                 # Add info to the mapping centre for further use.
                 mq_map.add(mac_addr, p, ai_input_q, group)
+                proc=mq_map.get_process_id(mac_addr)
+                mq_id = mq_map.get_ai_input_q(mac_addr)
+                mq_id.put(seismic_data)
+                logger.debug(f'The queue of mac {mac_addr} id {mq_id} is added a new seismic_data. The length of it is {mq_id.qsize()}')
             else:
                 raise ValueError(f"Number of devices has reached the limit, please contact your provider")
 
@@ -232,6 +321,7 @@ def process_schedule(mqtt_msg_q):
                 backlog=mq_id.qsize()
                 if proc.is_alive() and backlog < 180:
                     mq_id.put(seismic_data)
+                    # print(f'fffffffff {seismic_data["data"][-1]}')
                     logger.debug(f'The queue of mac {mac_addr} id {mq_id} is added a new seismic_data. The length of it is {mq_id.qsize()}')
                 else:
                     if proc.is_alive():
@@ -297,7 +387,7 @@ def setup_mqtt_for_raw_data(config_dict):
     mqtt_client.on_connect = on_mqtt_connect
     mqtt_client.on_message = on_mqtt_message
     mqtt_client.connect(config_dict["mqtt"]['ip'], config_dict['mqtt']["port"], 60)
-    logger.info(f'The receiver client has connected to ip {config_dict['mqtt']['ip']} port {config_dict['mqtt']['port']}')
+    logger.info(f'The receiver client has connected to ip {config_dict["mqtt"]["ip"]} port {config_dict["mqtt"]["port"]}')
     mqtt_thread = threading.Thread(target=lambda: mqtt_client.loop_forever(), name='mqtt_clinet_receiver') 
     mqtt_thread.daemon = True
     mqtt_thread.start()
@@ -313,6 +403,10 @@ def is_all_threads_alive(thd_list):
             break
     return alive
 
+
+def setup_mqtt_for_publishing_data(config_dict):
+    return
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Signal Check Test', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # The '-c' argument must be include.
@@ -325,6 +419,7 @@ if __name__ == '__main__':
     config_dict = parse_config_file(args.conf_file)
     logger.info(json.dumps(config_dict, ensure_ascii=False))
     mqtt_dedicated_receive, mqtt_thread_recv=setup_mqtt_for_raw_data(config_dict)
+    mqtt_dedicated_publisher, mqtt_thread_pub=setup_mqtt_for_publishing_data(config_dict)
     thread_list.append(mqtt_thread_recv)
     logger.info(
         f"The receiver thread is added to thread list\n"

@@ -584,10 +584,10 @@ if __name__ == '__main__':
         schedule_thread.start()
         thread_list.append(schedule_thread)
 
-        # publish_thread = threading.Thread(target=publish_result, args=(result_queue,) )
-        # publish_thread.daemon = True
-        # publish_thread.start()
-        # thread_list.append(publish_thread)
+        publish_thread = threading.Thread(target=publish_result, args=(result_queue,) )
+        publish_thread.daemon = True
+        publish_thread.start()
+        thread_list.append(publish_thread)
 
         loop_cnt=0
         while True:

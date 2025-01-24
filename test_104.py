@@ -1,5 +1,5 @@
 import numpy as np
-from utils import *
+from utils import parse_beddot_data, encode_beddot_data, int_to_mac
 import matplotlib.pyplot as plt
 import paho.mqtt.client as mqtt
 from scipy.signal import resample
@@ -32,8 +32,9 @@ def setup_mqtt_receiver(broker, port, topic):
 
 if __name__ == "__main__":
     
-    mqtt_publisher = setup_mqtt_publisher('167.20.180.210', 1883)
-    data = np.load('./BSG_ECG.npy')[:5]
+    # mqtt_publisher = setup_mqtt_publisher('167.20.180.210', 1883)
+    mqtt_publisher = setup_mqtt_publisher('localhost', 1883)
+    data = np.load('./BSG_ECG.npy')[:120]
     cnt = 0
     for i in range(data.shape[0]):
         data_row = data[i]
@@ -46,11 +47,13 @@ if __name__ == "__main__":
         mac_ecg = int_to_mac(mac_ecg)
         timestamp = int(data_row[-53])
         for j in range(10):
-            bsg[-1] = i * 10 +j
-            ecg[-1] = i * 10 +j
-            byte_bsg = encode_beddot_data(mac_bsg, timestamp + j, 10000, 0, bsg[j * 100:(j + 1) * 100])
+            bsg_tmp = bsg[j * 100:(j + 1) * 100]
+            ecg_tmp = ecg[j * 100:(j + 1) * 100]
+            bsg_tmp[-1] = i * 10 + j
+            ecg_tmp[-1] = i * 10 + j
+            byte_bsg = encode_beddot_data(mac_bsg, timestamp + j, 10000, bsg_tmp)
             mqtt_publisher.publish(f'/yida/{mac_bsg}/bsg', byte_bsg)
-            byte_ecg = encode_beddot_data(mac_ecg, timestamp + j, 10000, 1, ecg[j * 100:(j + 1) * 100])
+            byte_ecg = encode_beddot_data(mac_ecg, timestamp + j, 10000, ecg_tmp)
             mqtt_publisher.publish(f'/yida/{mac_ecg}/ecg', byte_ecg)
             cnt += 1
 

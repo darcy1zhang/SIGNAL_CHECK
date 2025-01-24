@@ -1,7 +1,7 @@
 import struct
 import re
 import numpy as np
-from BCG_preprocessing import signal_quality_assessment_v4
+from SIGNAL_CHECK.src.BCG_preprocessing import signal_quality_assessment_v4
 from statsmodels.tsa.stattools import acf
 from scipy.signal import find_peaks, butter, lfilter, filtfilt
 from datetime import datetime
@@ -69,15 +69,15 @@ def parse_beddot_data(msg):
 
     return  mac_addr, timestamp, data_interval, signal_type, data
 
-def encode_beddot_data(mac_addr, timestamp, data_interval, signal_type, data):
+def encode_beddot_data(mac_addr, timestamp, data_interval, data):
     mac_bytes = bytes(int(x, 16) for x in mac_addr.split(":")) # mac address should be in the form of "11:22:33:44:55:66"
     data_len = len(data) # data length is always 100, which means one second
     data_len_bytes = struct.pack("H", data_len)
     timestamp_bytes = struct.pack("L", int(timestamp * 1e6)) # timestamp is in second (orignal is in us)
     data_interval_bytes = struct.pack("I", data_interval) # data interval is in us
-    signal_type_bytes = struct.pack("i", signal_type) # 0 is BSG, 1 is ECG
+    # signal_type_bytes = struct.pack("i", signal_type) # 0 is BSG, 1 is ECG
     data_bytes = b''.join(struct.pack("i", int(d)) for d in data)
-    encoded_data = mac_bytes + data_len_bytes + timestamp_bytes + data_interval_bytes + signal_type_bytes + data_bytes
+    encoded_data = mac_bytes + data_len_bytes + timestamp_bytes + data_interval_bytes + data_bytes
     return encoded_data
 
 
