@@ -97,7 +97,7 @@ def parse_beddot_data(msg):
     timestamp=struct.unpack("L",bytedata[8:16])[0]  # in micro second
     data_interval=struct.unpack("I",bytedata[16:20])[0]  # in micro second
 
-    timestamp -= data_interval
+    timestamp -=data_interval
     # data=[0]*int((len(bytedata)-20)/4)
     data=[0]*data_len
     index=20

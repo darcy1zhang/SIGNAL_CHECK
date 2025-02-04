@@ -1,7 +1,7 @@
 import struct
 import re
 import numpy as np
-from SIGNAL_CHECK.src.BCG_preprocessing import signal_quality_assessment_v4
+from BCG_preprocessing import signal_quality_assessment_v4
 from statsmodels.tsa.stattools import acf
 from scipy.signal import find_peaks, butter, lfilter, filtfilt
 from datetime import datetime

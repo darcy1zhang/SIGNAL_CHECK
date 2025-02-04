@@ -40,15 +40,15 @@ if __name__ == "__main__":
         data_row = data[i]
         bsg = data_row[:1000]
         ecg = data_row[1000:3560]
-        ecg = resample(ecg, 1000)
+        # ecg = resample(ecg, 1000)
         mac_bsg = data_row[-54]
-        mac_ecg = mac_bsg + 100
+        mac_ecg = mac_bsg
         mac_bsg = int_to_mac(mac_bsg)
         mac_ecg = int_to_mac(mac_ecg)
         timestamp = int(data_row[-53])
         for j in range(10):
             bsg_tmp = bsg[j * 100:(j + 1) * 100]
-            ecg_tmp = ecg[j * 100:(j + 1) * 100]
+            ecg_tmp = ecg[j * 256:(j + 1) * 256]
             bsg_tmp[-1] = i * 10 + j
             ecg_tmp[-1] = i * 10 + j
             byte_bsg = encode_beddot_data(mac_bsg, timestamp + j, 10000, bsg_tmp)

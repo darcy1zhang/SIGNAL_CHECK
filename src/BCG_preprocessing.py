@@ -1789,7 +1789,7 @@ def signal_quality_assessment_v4(x, Fs, n_lag, low, high,
                                  diff = 1, smooth_filter = 'MA',
                                  denoised_method = 'bandpass',
                                  show = False):
-    x = (x - np.mean(x))/np.std(x)
+    x = (x - np.mean(x))/(np.std(x)+1e-6)
     if denoised_method == 'bandpass':
         denoised_sig = band_pass_filter(data=x, Fs=Fs,
                                         low=low, high=high, order=3,
